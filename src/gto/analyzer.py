@@ -73,7 +73,8 @@ class GTOAnalyzer:
             "positions": {}
         }
         
-        for position in [Position.MP, Position.CO, Position.BTN, Position.BB]:
+        # Include all 6 positions
+        for position in [Position.UTG, Position.MP, Position.CO, Position.BTN, Position.SB, Position.BB]:
             action = self.chart_parser.get_action_for_hand(position, hand_notation)
             comparison["positions"][position.short_name] = {
                 "action": action.value,

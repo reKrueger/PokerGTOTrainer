@@ -15,13 +15,41 @@ class GTOChartParser:
     
     def _initialize_charts(self):
         """Initialize all GTO charts based on the provided data"""
+        self._create_utg_chart()
         self._create_mp2_chart()
         self._create_mp3_chart() 
         self._create_co_chart()
         self._create_btn_sb_chart()
+        self._create_sb_chart()
         self._create_bb_vs_sb_btn_chart()
         self._create_bb_vs_co_chart()
         self._create_bb_vs_mp3_chart()
+    
+    def _create_utg_chart(self):
+        """Create UTG (Under The Gun) opening range - tightest range"""
+        utg_range = GTORange(Position.UTG, "first_in")
+        
+        # Premium hands - raise/4-bet/all in
+        premium_hands = ["AA", "KK", "QQ", "JJ", "AKs", "AKo"]
+        for hand in premium_hands:
+            utg_range.add_hand_to_action(hand, Action.RAISE_4BET_ALL_IN)
+        
+        # Strong hands - raise/4-bet/fold  
+        strong_hands = ["AQs", "AQo", "AJs", "KQs", "TT"]
+        for hand in strong_hands:
+            utg_range.add_hand_to_action(hand, Action.RAISE_4BET_FOLD)
+        
+        # Medium hands - raise/call
+        medium_hands = ["ATs", "KJs", "QJs", "99"]
+        for hand in medium_hands:
+            utg_range.add_hand_to_action(hand, Action.RAISE_CALL)
+        
+        # Limited weaker raises - raise/fold
+        weak_raise_hands = ["A9s", "A8s", "KTs", "88", "77"]
+        for hand in weak_raise_hands:
+            utg_range.add_hand_to_action(hand, Action.RAISE_FOLD)
+        
+        self.charts[Position.UTG] = utg_range
     
     def _create_mp2_chart(self):
         """Create MP2 (Middle Position 2) opening range"""
@@ -137,6 +165,40 @@ class GTOChartParser:
             btn_range.add_hand_to_action(hand, Action.RAISE_FOLD)
         
         self.charts[Position.BTN] = btn_range
+    
+    def _create_sb_chart(self):
+        """Create Small Blind opening range - similar to BTN but slightly tighter"""
+        sb_range = GTORange(Position.SB, "first_in")
+        
+        # Premium hands - raise/4-bet/all in
+        premium_hands = ["AA", "KK", "QQ", "JJ", "AKs", "AKo"]
+        for hand in premium_hands:
+            sb_range.add_hand_to_action(hand, Action.RAISE_4BET_ALL_IN)
+        
+        # Strong hands - raise/4-bet/fold
+        strong_hands = ["AQs", "AQo", "AJs", "AJo", "ATs", "ATo", "KQs", "KQo", "KJs", 
+                       "KJo", "KTs", "QJs", "QJo", "QTs", "TT", "99", "88"]
+        for hand in strong_hands:
+            sb_range.add_hand_to_action(hand, Action.RAISE_4BET_FOLD)
+        
+        # Medium hands - raise/call  
+        medium_hands = ["A9s", "A8s", "A7s", "A6s", "A5s", "K9s", "Q9s", "JTs", "J9s", "T9s", "77", "66"]
+        for hand in medium_hands:
+            sb_range.add_hand_to_action(hand, Action.RAISE_CALL)
+        
+        # Wide raising range - raise/fold (slightly tighter than BTN)
+        weak_raise_hands = ["A4s", "A3s", "A2s", "K8s", "K7s", "K6s", "K5s", "K4s", 
+                           "Q8s", "Q7s", "J8s", "J7s", "T8s", "T7s", "98s", "97s", 
+                           "87s", "86s", "76s", "65s", "55", "44", "33", "22"]
+        for hand in weak_raise_hands:
+            sb_range.add_hand_to_action(hand, Action.RAISE_FOLD)
+        
+        # Some offsuit broadway - raise/fold
+        offsuit_broadway = ["A9o", "KTo", "QTo"]
+        for hand in offsuit_broadway:
+            sb_range.add_hand_to_action(hand, Action.RAISE_FOLD)
+        
+        self.charts[Position.SB] = sb_range
     
     def _create_bb_vs_sb_btn_chart(self):
         """Create BB defense vs SB+BTN"""

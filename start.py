@@ -35,8 +35,8 @@ class GTOTrainer:
     
     def generate_random_situation(self):
         """Generate a random poker situation"""
-        # Random position (focus on main positions)
-        positions = [Position.MP, Position.CO, Position.BTN, Position.BB]
+        # All 6 positions for 6-max poker
+        positions = [Position.UTG, Position.MP, Position.CO, Position.BTN, Position.SB, Position.BB]
         position = random.choice(positions)
         
         # Generate random hand
