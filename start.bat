@@ -30,7 +30,9 @@ echo.
 REM Change to project directory
 cd /d "%~dp0"
 
-REM Start position trainer (updated version)
-streamlit run streamlit_position_trainer.py --server.headless=true --browser.gatherUsageStats=false --server.port=8501
+REM Activate virtual environment and start streamlit
+call env\Scripts\activate
+set STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+python -m streamlit run streamlit_position_trainer.py --server.headless=true --browser.gatherUsageStats=false --server.port=8501
 
 pause

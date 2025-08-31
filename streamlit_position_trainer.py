@@ -15,6 +15,13 @@ import math
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, parent_dir)
 
+# Import poker table UI components
+try:
+    from poker_table_ui import PokerTableController, PokerTableModel, PokerTableView
+    TABLE_UI_AVAILABLE = True
+except ImportError:
+    TABLE_UI_AVAILABLE = False
+
 # Try to import poker modules
 try:
     from poker_gto.core import Card, Deck, Hand, Position, Rank, Suit
@@ -30,152 +37,256 @@ st.set_page_config(
     layout="wide"
 )
 
-def create_poker_table_visual(current_position=None):
-    """Create poker table that highlights current position clearly"""
-    fig = go.Figure()
+def create_hand_range_table(position_str: str):
+    """Create a poker hand range table for the given position"""
+    if not POKER_AVAILABLE:
+        st.error("❌ Poker modules not available!")
+        return
     
-    # Draw the poker table (elliptical)
-    theta = [i * 2 * math.pi / 100 for i in range(101)]
-    table_x = [2.2 * math.cos(t) for t in theta]
-    table_y = [1.2 * math.sin(t) for t in theta]
+    # Map position string to Position enum
+    position_map = {
+        "UTG": Position.UTG,
+        "MP": Position.MP,
+        "CO": Position.CO,
+        "BTN": Position.BTN,
+        "SB": Position.SB,
+        "BB": Position.BB
+    }
     
-    # Add poker table
-    fig.add_trace(go.Scatter(
-        x=table_x, y=table_y,
-        fill='toself',
-        fillcolor='rgba(34, 139, 34, 0.4)',  # Darker green
-        line=dict(color='rgba(34, 139, 34, 0.9)', width=5),
-        mode='lines',
-        showlegend=False,
-        hoverinfo='none'
-    ))
-    
-    # Position data: [x, y, name, short_name]
-    positions_data = [
-        (0, 2.0, "Under The Gun", "UTG"),      # Top
-        (2.0, 1.0, "Middle Position", "MP"),   # Top Right
-        (2.0, -1.0, "Cut Off", "CO"),         # Bottom Right
-        (0, -2.0, "Button", "BTN"),           # Bottom
-        (-2.0, -1.0, "Small Blind", "SB"),    # Bottom Left
-        (-2.0, 1.0, "Big Blind", "BB")        # Top Left
-    ]
-    
-    # Add position markers with enhanced highlighting
-    for x, y, full_name, short_name in positions_data:
-        is_current = (current_position and current_position.upper() == short_name)
+    position = position_map.get(position_str)
+    if not position:
+        st.error(f"❌ Unknown position: {position_str}")
+        return
         
-        if is_current:
-            # Current position - large red circle with pulse effect
-            circle_color = "#FF1122"
-            circle_size = 35
-            text_color = 'white'
-            border_width = 4
-            border_color = '#FF6666'
+    analyzer = st.session_state.analyzer
+    
+    # Get range based on position
+    if position_str in ["UTG", "MP", "CO", "BTN", "SB"]:
+        scenario = "first_in"
+    else:  # BB
+        scenario = "vs_btn_sb"  # Default BB scenario
+        
+    # Special handling for position mappings
+    if position_str == "MP":
+        # The analyzer uses mp3_first_in, so we need to get that specifically
+        chart_key = "mp3_first_in"
+        gto_range = analyzer.chart_parser.charts.get(chart_key)
+    elif position_str == "UTG":
+        # UTG uses same range as MP2 (tighter)
+        chart_key = "mp2_first_in"
+        gto_range = analyzer.chart_parser.charts.get(chart_key)
+    else:
+        gto_range = analyzer._get_range_for_scenario(position, scenario)
+    if not gto_range:
+        st.warning(f"⚠️ No GTO data available for {position_str} in scenario {scenario}")
+        return
+    
+    # Create 13x13 hand matrix (standard poker hand matrix)
+    ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
+    
+    # Create HTML table
+    html_table = "<table style='border-collapse: collapse; width: 100%; font-family: monospace;'>"
+    
+    # Header row
+    html_table += "<tr><th style='border: 1px solid #333; padding: 8px; background: #f0f0f0;'></th>"
+    for rank in ranks:
+        html_table += f"<th style='border: 1px solid #333; padding: 8px; background: #f0f0f0; text-align: center;'>{rank}</th>"
+    html_table += "</tr>"
+    
+    # Data rows
+    for i, rank1 in enumerate(ranks):
+        html_table += f"<tr><th style='border: 1px solid #333; padding: 8px; background: #f0f0f0; text-align: center;'>{rank1}</th>"
+        
+        for j, rank2 in enumerate(ranks):
+            if i < j:
+                # Upper right: suited hands (e.g., AKs)
+                hand = f"{rank1}{rank2}s"
+            elif i > j:
+                # Lower left: offsuit hands (e.g., AKo)
+                hand = f"{rank2}{rank1}o"
+            else:
+                # Diagonal: pairs (e.g., AA)
+                hand = f"{rank1}{rank1}"
+            
+            # Check if hand is in any action range and get color
+            action_found = None
+            for action, hand_range in gto_range.action_ranges.items():
+                if hand_range.get_frequency(hand) > 0:
+                    action_found = action
+                    break
+            
+            # Color coding based on action
+            if action_found:
+                if "ALL_IN" in action_found.name:
+                    color = "#FF4444"  # Red for premium hands
+                    text_color = "white"
+                elif "RERAISE" in action_found.name:
+                    color = "#FF8844"  # Orange for reraise
+                    text_color = "white"
+                elif "RAISE" in action_found.name:
+                    color = "#44AA44"  # Green for raise
+                    text_color = "white"
+                elif "CALL" in action_found.name:
+                    color = "#4488FF"  # Blue for call
+                    text_color = "white"
+                else:
+                    color = "#DDDDDD"  # Light gray for other actions
+                    text_color = "black"
+            else:
+                color = "#FFFFFF"  # White for fold/not in range
+                text_color = "black"
+            
+            cell_style = f"border: 1px solid #333; padding: 8px; text-align: center; background-color: {color}; color: {text_color}; font-weight: bold;"
+            html_table += f"<td style='{cell_style}'>{hand}</td>"
+        
+        html_table += "</tr>"
+    
+    html_table += "</table>"
+    
+    return html_table, gto_range
+
+
+def show_range_display():
+    """Display the range table for selected position"""
+    if 'show_range_for' not in st.session_state:
+        return
+        
+    position = st.session_state.show_range_for
+    st.markdown(f"## 📊 Starting Hand Ranges - {position}")
+    
+    # Show table with focus on selected position
+    if TABLE_UI_AVAILABLE:
+        model = PokerTableModel()
+        controller = PokerTableController(model)
+        view = PokerTableView(controller)
+        
+        controller.setup_range_display_scenario(position)
+        fig = view.render_range_table(position)
+        st.plotly_chart(fig, use_container_width=True, key=f"range_table_{position}")
+        
+        st.markdown("---")
+    
+    # Get scenario options for position
+    if position in ["UTG", "MP", "CO", "BTN", "SB"]:
+        scenarios = ["first_in"]
+    else:  # BB
+        scenarios = ["vs_btn_sb", "vs_co", "vs_mp3"]
+    
+    # Scenario selector for BB
+    if position == "BB":
+        selected_scenario = st.selectbox(
+            "Scenario wählen:",
+            scenarios,
+            format_func=lambda x: {
+                "vs_btn_sb": "vs Button/Small Blind",
+                "vs_co": "vs Cut Off", 
+                "vs_mp3": "vs Middle Position"
+            }.get(x, x),
+            key="bb_scenario"
+        )
+    else:
+        selected_scenario = "first_in"
+        st.info(f"**Scenario**: First in (Opening)")
+    
+    try:
+        # Create position enum
+        position_map = {
+            "UTG": Position.UTG,
+            "MP": Position.MP,
+            "CO": Position.CO,
+            "BTN": Position.BTN,
+            "SB": Position.SB,
+            "BB": Position.BB
+        }
+        
+        pos_enum = position_map[position]
+        analyzer = st.session_state.analyzer
+        
+        # Special handling for position mappings
+        if position == "MP":
+            chart_key = "mp3_first_in"
+            gto_range = analyzer.chart_parser.charts.get(chart_key)
+        elif position == "UTG":
+            # UTG uses same range as MP2 (tighter)
+            chart_key = "mp2_first_in" 
+            gto_range = analyzer.chart_parser.charts.get(chart_key)
         else:
-            # Other positions - smaller green circles
-            circle_color = "#4CAF50"
-            circle_size = 22
-            text_color = 'white'
-            border_width = 2
-            border_color = '#66BB6A'
+            gto_range = analyzer._get_range_for_scenario(pos_enum, selected_scenario)
         
-        fig.add_trace(go.Scatter(
-            x=[x], y=[y],
-            mode='markers+text',
-            marker=dict(
-                size=circle_size, 
-                color=circle_color, 
-                line=dict(color=border_color, width=border_width)
-            ),
-            text=short_name,
-            textposition="middle center",
-            textfont=dict(
-                size=14 if is_current else 11, 
-                color=text_color,
-                family='Arial Black' if is_current else 'Arial'
-            ),
-            name=full_name,
-            hovertemplate=f"<b>{full_name}</b><br>({short_name})" + 
-                         ("<br><b>← YOU ARE HERE</b>" if is_current else "") + "<extra></extra>",
-            showlegend=False
-        ))
+        if not gto_range:
+            st.error(f"❌ No range data found for {position} in scenario {selected_scenario}")
+            return
         
-        # Add position labels outside circles
-        if is_current:
-            # Big red arrow pointing to your position
-            fig.add_annotation(
-                x=x, y=y + (0.8 if y > 0 else -0.8),
-                text="<b>↓ YOU ↓</b>" if y > 0 else "<b>↑ YOU ↑</b>",
-                showarrow=False,
-                font=dict(size=16, color='#FF1122', family='Arial Black'),
-                bgcolor='rgba(255, 255, 255, 0.9)',
-                bordercolor='#FF1122',
-                borderwidth=2
-            )
+        # Legend
+        st.markdown("### 🎨 Legende:")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.markdown('<div style="background-color: #FF4444; padding: 10px; text-align: center; color: white; font-weight: bold;">🔴 Premium (All-in)</div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown('<div style="background-color: #FF8844; padding: 10px; text-align: center; color: white; font-weight: bold;">🟠 Reraise</div>', unsafe_allow_html=True)
+        with col3:
+            st.markdown('<div style="background-color: #44AA44; padding: 10px; text-align: center; color: white; font-weight: bold;">🟢 Raise</div>', unsafe_allow_html=True)
+        with col4:
+            st.markdown('<div style="background-color: #4488FF; padding: 10px; text-align: center; color: white; font-weight: bold;">🔵 Call</div>', unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Display the range table
+        html_table, gto_range = create_hand_range_table(position)
+        st.markdown(html_table, unsafe_allow_html=True)
+        
+        # Statistics
+        st.markdown("### 📈 Range Statistiken:")
+        total_hands_in_range = 0
+        action_stats = {}
+        
+        for action, hand_range in gto_range.action_ranges.items():
+            hand_count = len(hand_range.get_all_hands())
+            action_stats[action.value] = hand_count
+            total_hands_in_range += hand_count
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Gesamte Hände in Range", f"{total_hands_in_range}/169")
+            st.metric("VPIP (%)", f"{(total_hands_in_range/169)*100:.1f}%")
+        
+        with col2:
+            if action_stats:
+                st.write("**Action Breakdown:**")
+                for action, count in action_stats.items():
+                    percentage = (count / 169) * 100
+                    st.write(f"• {action}: {count} Hände ({percentage:.1f}%)")
+        
+    except Exception as e:
+        st.error(f"❌ Error displaying range: {str(e)}")
+
+
+def create_poker_table_visual(current_position=None):
+    """Create poker table using new MVC architecture"""
+    if not TABLE_UI_AVAILABLE:
+        st.error("❌ Table UI components not available!")
+        return None
     
-    # Add dealer button if BTN is current position
-    if current_position and current_position.upper() == "BTN":
-        fig.add_trace(go.Scatter(
-            x=[0.4], y=[-1.6],
-            mode='markers+text',
-            marker=dict(
-                size=18,
-                color='white',
-                line=dict(color='black', width=3)
-            ),
-            text="DEALER",
-            textposition="middle center",
-            textfont=dict(size=8, color='black', family='Arial Black'),
-            name="Dealer Button",
-            showlegend=False,
-            hovertemplate="Dealer Button<extra></extra>"
-        ))
+    # Create table components
+    model = PokerTableModel()
+    controller = PokerTableController(model)
+    view = PokerTableView(controller)
     
-    # Add title in center with position info
-    center_text = "<b>6-MAX<br>POKER TABLE</b>"
     if current_position:
-        center_text += f"<br><span style='color: #FF1122; font-size: 14px;'>You: {current_position}</span>"
-    
-    fig.add_annotation(
-        x=0, y=0,
-        text=center_text,
-        showarrow=False,
-        font=dict(size=16, color='white'),
-        bgcolor='rgba(34, 139, 34, 0.9)',
-        bordercolor='rgba(255, 255, 255, 0.4)',
-        borderwidth=2
-    )
-    
-    # Layout with better sizing
-    title_text = "🎰 Poker Table"
-    if current_position:
-        title_text += f" - <span style='color: #FF1122;'>YOU ARE {current_position}</span>"
-    
-    fig.update_layout(
-        title=dict(
-            text=title_text,
-            x=0.5,
-            font=dict(size=20)
-        ),
-        xaxis=dict(
-            range=[-3.2, 3.2], 
-            showgrid=False, 
-            showticklabels=False, 
-            zeroline=False
-        ),
-        yaxis=dict(
-            range=[-3.2, 3.2], 
-            showgrid=False, 
-            showticklabels=False, 
-            zeroline=False, 
-            scaleanchor="x", 
-            scaleratio=1
-        ),
-        plot_bgcolor='rgba(240, 248, 255, 0.1)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        height=450,
-        margin=dict(l=20, r=20, t=60, b=20)
-    )
+        # Setup training scenario with hero position
+        position_map = {
+            "UTG": "UTG", "MP": "MP", "CO": "CO", 
+            "BTN": "BTN", "SB": "SB", "BB": "BB"
+        }
+        hero_pos = position_map.get(current_position.upper(), "BTN")
+        controller.setup_training_scenario(hero_pos, "Hero")
+        
+        # Render training table
+        fig = view.render_training_table(hero_pos)
+    else:
+        # Empty table for start screen
+        controller.setup_full_table()  # Show full table layout
+        fig = view.render_simple()
     
     return fig
 
@@ -185,6 +296,10 @@ def main():
     
     if not POKER_AVAILABLE:
         st.error("❌ Poker modules not found!")
+        return
+        
+    if not TABLE_UI_AVAILABLE:
+        st.error("❌ Table UI components not found!")
         return
     
     # Initialize
@@ -197,9 +312,38 @@ def main():
     st.sidebar.title("🎮 Training Controls")
     
     # Big prominent button
-    if st.sidebar.button("🎲 NEUE HAND", key="new_hand", help="Generate new situation", type="primary"):
+    if st.sidebar.button("🎲 FLOP TRAINING", key="new_hand", help="Generate new situation", type="primary"):
         generate_new_hand()
         st.rerun()  # Force immediate redraw
+    
+    st.sidebar.markdown("---")
+    
+    # Flop Ranges Section
+    st.sidebar.markdown("### 📊 Flop Ranges")
+    
+    # Position selection for range display
+    positions = ["UTG", "MP", "CO", "BTN", "SB", "BB"]
+    position_names = {
+        "UTG": "Under The Gun",
+        "MP": "Middle Position", 
+        "CO": "Cut Off",
+        "BTN": "Button",
+        "SB": "Small Blind",
+        "BB": "Big Blind"
+    }
+    
+    # Position selector
+    selected_position = st.sidebar.selectbox(
+        "Position wählen:",
+        positions,
+        key="range_position",
+        help="Wähle eine Position um die Starting Hand Ranges zu sehen"
+    )
+    
+    if selected_position:
+        if st.sidebar.button(f"📋 Zeige {selected_position} Range", key="show_range"):
+            st.session_state.show_range_for = selected_position
+            st.rerun()
     
     st.sidebar.markdown("---")
     
@@ -221,14 +365,32 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("""
     **🎯 Anleitung:**
-    1. Klicke 'NEUE HAND'
+    1. Klicke 'FLOP TRAINING'
     2. Sieh deine rote Position
     3. Schaue deine Karten an
     4. Wähle deine Aktion
     5. Lerne aus GTO-Feedback
+    
+    **📊 Range Anzeige:**
+    - Wähle Position aus Liste
+    - Klicke 'Zeige Range'
+    - Studiere die Starthände
     """)
     
+    # Clear range display button
+    if 'show_range_for' in st.session_state:
+        if st.sidebar.button("❌ Range ausblenden", key="clear_range"):
+            del st.session_state.show_range_for
+            st.rerun()
+        
+        st.sidebar.info(f"📋 Zeige Range für: **{st.session_state.show_range_for}**")
+    
     # Main content
+    if 'show_range_for' in st.session_state:
+        # Show range display
+        show_range_display()
+        st.markdown("---")
+    
     if 'current_hand' in st.session_state:
         situation = st.session_state.current_hand
         current_pos = situation['position'].short_name
